@@ -8,9 +8,9 @@ How to use:
 2. Double click on ellipse to add router name. Double on link to add network address (d.d.d.d/dd);
 3. Save the network diagram as XML and put to a dir where the repo was cloned to;
 4. Launch topology_builder.py as:
-      topology_builder.py <diagram.xml>
+      topology_builder.py -f <diagram.xml>
 5. docker-compose file will be created
-6. Load MPLS kernel module:
+6. Load MPLS kernel module (optionally, if MPLS used):
    modprobe mpls_router;
    modprobe mpls_gso;
    modprobe mpls_iptunnel
