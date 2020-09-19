@@ -1,0 +1,123 @@
+version: '3'
+services:
+  ce_1-1:
+    build: /home/ashilkin/topology_builder/frr
+    networks:
+    - link:ce_1-1:pe_1-1:1
+    - link:ce_1-1:pe_2-1:1
+    ports:
+    - '2000:22'
+    privileged: true
+  ce_2-1:
+    build: /home/ashilkin/topology_builder/frr
+    networks:
+    - link:pe_3-1:ce_2-1:1
+    - link:pe_4-1:ce_2-1:1
+    ports:
+    - '2007:22'
+    privileged: true
+  p_1-1:
+    build: /home/ashilkin/topology_builder/frr
+    networks:
+    - link:pe_1-1:p_1-1:1
+    - link:p_2-1:p_1-1:1
+    - link:pe_3-1:p_1-1:1
+    ports:
+    - '2003:22'
+    privileged: true
+  p_2-1:
+    build: /home/ashilkin/topology_builder/frr
+    networks:
+    - link:pe_2-1:p_2-1:1
+    - link:p_2-1:p_1-1:1
+    - link:p_2-1:pe_4-1:1
+    ports:
+    - '2004:22'
+    privileged: true
+  pe_1-1:
+    build: /home/ashilkin/topology_builder/frr
+    networks:
+    - link:ce_1-1:pe_1-1:1
+    - link:pe_1-1:p_1-1:1
+    ports:
+    - '2001:22'
+    privileged: true
+  pe_2-1:
+    build: /home/ashilkin/topology_builder/frr
+    networks:
+    - link:ce_1-1:pe_2-1:1
+    - link:pe_2-1:p_2-1:1
+    ports:
+    - '2002:22'
+    privileged: true
+  pe_3-1:
+    build: /home/ashilkin/topology_builder/frr
+    networks:
+    - link:pe_3-1:p_1-1:1
+    - link:pe_3-1:ce_2-1:1
+    ports:
+    - '2005:22'
+    privileged: true
+  pe_4-1:
+    build: /home/ashilkin/topology_builder/frr
+    networks:
+    - link:p_2-1:pe_4-1:1
+    - link:pe_4-1:ce_2-1:1
+    ports:
+    - '2006:22'
+    privileged: true
+networks:
+  link:ce_1-1:pe_1-1:1:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 11.0.1.0/24
+      driver: default
+  link:ce_1-1:pe_2-1:1:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 11.0.2.0/24
+      driver: default
+  link:p_2-1:p_1-1:1:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 11.2.1.0/24
+      driver: default
+  link:p_2-1:pe_4-1:1:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 11.3.2.0/24
+      driver: default
+  link:pe_1-1:p_1-1:1:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 11.1.1.0/24
+      driver: default
+  link:pe_2-1:p_2-1:1:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 11.1.2.0/24
+      driver: default
+  link:pe_3-1:ce_2-1:1:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 11.4.1.0/24
+      driver: default
+  link:pe_3-1:p_1-1:1:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 11.3.1.0/24
+      driver: default
+  link:pe_4-1:ce_2-1:1:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 11.4.2.0/24
+      driver: default
