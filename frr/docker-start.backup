@@ -1,0 +1,39 @@
+#!/bin/sh
+
+set -e
+
+##
+# For volume mounts...
+##
+sed -i "s/bgpd=no/bgpd=yes/g" /etc/frr/daemons
+sed -i "s/ospfd=no/ospfd=yes/g" /etc/frr/daemons
+sed -i "s/ospf6d=no/ospf6d=yes/g" /etc/frr/daemons
+sed -i "s/ripd=no/ripd=yes/g" /etc/frr/daemons
+sed -i "s/ripngd=no/ripngd=yes/g" /etc/frr/daemons
+sed -i "s/isisd=no/isisd=yes/g" /etc/frr/daemons
+sed -i "s/pimd=no/pimd=yes/g" /etc/frr/daemons
+sed -i "s/ldpd=no/ldpd=yes/g" /etc/frr/daemons
+sed -i "s/nhrpd=no/nhrpd=yes/g" /etc/frr/daemons
+sed -i "s/eigrpd=no/eigrpd=yes/g" /etc/frr/daemons
+sed -i "s/babeld=no/babeld=yes/g" /etc/frr/daemons
+sed -i "s/sharpd=no/sharpd=yes/g" /etc/frr/daemons
+sed -i "s/pbrd=no/pbrd=yes/g" /etc/frr/daemons
+sed -i "s/bfdd=no/bfdd=yes/g" /etc/frr/daemons
+sed -i "s/fabricd=no/fabricd=yes/g" /etc/frr/daemons
+chown -R frr:frr /etc/frr
+
+
+#Enable MPLS
+sysctl -w net.mpls.platform_labels=1000 
+for iface in $(ls /proc/sys/net/mpls/conf/); do sysctl -w net.mpls.conf.$iface.input=1; done
+/etc/init.d/frr start
+
+#Enable SSH
+sed -i 's/#PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
+sed -i 's/#PermitEmptyPasswords .*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
+echo 'root:root' | chpasswd
+echo 'exec /usr/bin/vtysh' >> ~/.bashrc
+/etc/init.d/ssh start
+
+#Launch continous command
+exec sleep 10000d
