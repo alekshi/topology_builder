@@ -1,22 +1,36 @@
 # topology_builder
 The script is proposed to deploy a network topology drawn in [draw.io](https://app.diagrams.net/) using containerized [FRR](https://frrouting.org/) as routers. The script uses [Docker file](https://github.com/alekshi/topology_builder/blob/master/frr/Dockerfile) creates docker-compose file and container configuration file (frr/docker-start). 
 
-##Draw.io diagram defenitions
+## Draw.io diagram defenitions
 A mapping between draw.io and docker objects is depicted on the figure below:
 ![image](https://github.com/alekshi/topology_builder/blob/master/diagram-definition.png "Mapping between draw.io and docker")
+You can use any shapes for router and broadcast networks. IPv4 subnets are supported right now only. You can use prefix length <= /29 since docker host use one address from each subnet.
 
-How to use:
-
-0. Clone the repo
-1. Draw a network a diagram using draw.io. Use ellipse to draw a router, line to draw a link;
-2. Double click on ellipse to add router name. Double on link to add network address (d.d.d.d/dd);
-3. Save the network diagram as XML and put to a dir where the repo was cloned to;
-4. Launch topology_builder.py as:
-      topology_builder.py -f <diagram.xml>
-5. docker-compose file will be created
-6. Load MPLS kernel module (optionally, if MPLS used):
-   modprobe mpls_router;
-   modprobe mpls_gso;
+## How to use
+1. Clone the repo
+```
+git clone https://github.com/alekshi/topology_builder.git
+cd topology_builder/
+```
+2. Draw a network diagram using [draw.io](https://app.diagrams.net/) and export to xml (without compressing)
+3. To use MPLS with Linux kernel, load additional modules:
+```  
+   modprobe mpls_router
+   modprobe mpls_gso
    modprobe mpls_iptunnel
-6. Launch the docker-compose file to create FRR topology that was depicted in draw.io file
-
+ ```
+4. Lanuch [topology_builder.py](https://github.com/alekshi/topology_builder/blob/master/topology_builder.py) to create docker-compose file and frr/docker-start file
+``` 
+./topology_builder.py -f <XML topology file path>
+``` 
+Default settings include:
+..* Ellipse as router
+..* Rectangle as broadcast network
+..* All FRR daemons are enable
+..* MPLS is disable
+Use ``` --help ```  to see all options
+5. Launch docker-compose file to create topology
+``` 
+docker-compose up -d
+``` 
+6. Check ports what are exposed for ssh connection using ```docker container ls```  By default 2000+ ports are used for ssh and root/root credentials. 
