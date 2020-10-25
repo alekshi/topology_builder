@@ -24,10 +24,10 @@ cd topology_builder/
 ./topology_builder.py -f <XML topology file path>
 ``` 
 Default settings include:
-..*Ellipse as router
-..*Rectangle as broadcast network
-..*All FRR daemons are enable
-..*MPLS is disable
+*Ellipse as router
+*Rectangle as broadcast network
+*All FRR daemons are enable
+*MPLS is disable
 Use ``` --help ```  to see all options
 5. Launch docker-compose file to create topology
 ``` 
