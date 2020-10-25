@@ -7,20 +7,81 @@ import argparse
 
 
 class TheScript():
-	def __init__(self, topology_xml_file, working_dir, build_path, is_mpls_supported = False):
-		self.topology_xml_file = topology_xml_file
-		self.working_dir = working_dir
-		self.build_path = build_path
-		self.is_mpls_supported = is_mpls_supported
+	def __init__(self):
 		self.mxcell_list = list()
 		self.router_list = list()
 		self.link_list = list()
+		self.network_list = list()
+		self.frr_daemons = ('bgpd',
+							'ospfd',
+							'ospf6d',
+							'ripd',
+							'ripngd',
+							'isisd',
+							'pimd',
+							'ldpd',
+							'nhrpd',
+							'eigrpd',
+							'babeld',
+							'sharpd',
+							'pbrd',
+							'bfdd',
+							'fabricd'
+							)
+		self.shape_type = {'ellipse': '^ellipse;.+?$', 
+				   		   'rectangle': '^(?!.*(hexagon|ellipse|triangle|rhombus)).+?$', 
+				   		   'triangle': '^triangle;.+?$',
+				   		   'hexagon': '^shape=hexagon;.+?$'
+				   		  }
 
-	def object_list_by_name(self, object_list, name):
+	def parsing_arguments(self):
+		parser = argparse.ArgumentParser()
+		parser.add_argument("-f", "--file", required=True, help="draw.io XML topology file")
+		parser.add_argument("-d", "--dir", default=None, help="Directory to put final docker-compose.yml file (current dir by default)")
+		parser.add_argument("-p", "--path", default=None, help="Path to dir with Dockerfile (./frr default)")
+		parser.add_argument("-m", "--mpls", default=False, help="Boolean. Is MPLS enabled (False by default)")
+		parser.add_argument("-D", "--daemons", default=None, help="Daemons to enable in FRR (e.g: proto1,proto2,proto3 All daemons enabled by default)")
+		parser.add_argument("-r", "--router_shape", default='ellipse', help="A shape what represents router  on diagram (ellipse by default). Use: ellipse, rectangle, triangle, hexagon")
+		parser.add_argument("-n", "--network_shape", default='rectangle', help="A shape what represents broadcast network on diagram (rectangle by default). Use: ellipse, rectangle, triangle, hexagon")
+		args = parser.parse_args()
+	
+		self.topology_xml_file = args.file
+		
+		if args.dir:
+			self.working_dir = args.dir
+		else:
+			self.working_dir = sys.path[0]
+		
+		if args.path:
+			self.build_path = args.path
+		else:
+			self.build_path = '{}/frr'.format(self.working_dir)
+	
+		self.is_mpls_enabled = args.mpls
+		
+		self.daemon_list = list()
+		if args.daemons:
+			for daemon in args.daemons.split(','):
+				if daemon in self.frr_daemons:
+					self.daemon_list.append(daemon)
+		else:
+			self.daemon_list = self.frr_daemons
+	
+		self.router_shape = args.router_shape
+		self.network_shape = args.network_shape
+	
+		if self.router_shape == self.network_shape:
+			sys.stdout.write(f"Router and broadcast network should be represented by different shapes. Now they are same {router_shape}\n")
+			sys.stderr.write(f"Router and broadcast network should be represented by different shapes. Now they are same {router_shape}\n")
+			sys.exit(1)
+
+
+	def object_list_by_name(self, object_list, name, name_type = 'name'):
 		return_list = list()
 		for object in object_list:
-			if re.match('^{}(-|:)\d+?$'.format(name), object.name):
-				return_list.append(object)
+			if getattr(object, name_type):
+				if re.match('^{}(-|:)\d+?$'.format(name), getattr(object, name_type)):
+					return_list.append(object)
 		return return_list
 
 	def object_by_attribute(self, object_list, attribute_name, attribute_value):
@@ -29,19 +90,26 @@ class TheScript():
 				return object
 		return None
 
-	def cell_by_id(self, cell_list, cell_id):
-		for cell in cell_list:
-			if cell.id == cell_id:
-				return cell
-		return None
+	def object_by_type(self, object_list, attribute_type):
+		return_list = list()
+		for object in object_list:
+			if object.type == attribute_type:
+				return_list.append(object)
+		return return_list
 
 	def parse_topology_file(self):
 		tree = ET.parse(self.topology_xml_file)
 		tree_root = tree.getroot()
 		for cell in tree_root.iter('mxCell'):
 			if 'style' in cell.attrib:
-				self.mxcell_list.append(mxCell(cell.attrib))
+				self.mxcell_list.append(mxCell(self.shape_type, cell.attrib))
 		if len(self.mxcell_list) > 0:
+			for cell in self.mxcell_list:
+				if len(self.object_list_by_name(self.mxcell_list, cell.value, 'value')) > 1 and not re.match('(\d{1,3}\.){3}\d{1,3}', cell.value):
+					counter = 1
+					for cell in self.object_list_by_name(self.mxcell_list, cell.value.lower()):
+						cell.value = '{}-{}'.format(cell.value, counter)
+						counter += 1
 			for cell in self.mxcell_list:
 				if cell.type == 'edge':
 					for connection in ('source', 'target'):
@@ -57,28 +125,53 @@ class TheScript():
 		else:
 			return False
 	
-	def create_router_list(self, router_shape = 'ellipse'):
-		for cell in self.mxcell_list:	
-			if cell.type == router_shape:
-				self.router_list.append(Router('{}-{}'.format(cell.value.lower(), len(self.object_list_by_name(self.router_list, cell.value.lower()))+1), cell))
+	def create_router_list(self, router_shape):
+		for cell in self.object_by_type(self.mxcell_list, router_shape):
+			self.router_list.append(Router('{}-{}'.format(cell.value.lower(), len(self.object_list_by_name(self.router_list, cell.value.lower()))+1), cell))
 		if len(self.router_list) > 0:
 			return True
 		else:
 			return False
 
+	def create_network_list(self, network_shape):
+		for cell in self.object_by_type(self.mxcell_list, network_shape):
+			net_name = 'net:{}'.format(re.sub('[./\s]', '_', cell.value))
+			self.network_list.append(Network(net_name, cell))
+			self.network_list[-1].add_subnet(cell.value)
+		return True
+
 	def create_link_list(self):	
-		for cell in self.mxcell_list:
-			if cell.type == 'edge':
-				connection_dict = {'source': None, 'target': None}
+		for cell in self.object_by_type(self.mxcell_list, 'edge'):
+			connection_dict = {'source': None, 'target': None}
+			for connection, name in connection_dict.items():
+				try:
+					connection_dict[connection] = getattr(cell, connection)
+				except:
+					pass
+
+			if all(connection_dict.values()):
+				if connection_dict['source'].type == self.router_shape and connection_dict['target'].type == self.router_shape:
+					link_name = 'link:{}:{}'.format(connection_dict['source'].value, connection_dict['target'].value).lower()
+					self.link_list.append(Link('{}:{}'.format(link_name, len(self.object_list_by_name(self.link_list, link_name))+1), cell))
+					self.link_list[-1].add_subnet(cell.value)
+				if connection_dict['source'].type == self.network_shape:
+					net_name = 'net:{}'.format(re.sub('[./\s]', '_', connection_dict['source'].value))
+					network_object = self.object_by_attribute(self.network_list, 'name', net_name)
+					if network_object:
+						network_object.add_host(connection_dict['target'])
+				if connection_dict['target'].type == self.network_shape:
+					net_name = 'net:{}'.format(re.sub('[./\s]', '_', connection_dict['target'].value))
+					network_object = self.object_by_attribute(self.network_list, 'name', net_name)
+					if network_object:
+						network_object.add_host(connection_dict['source'])
+			else:
 				for connection, name in connection_dict.items():
-					if getattr(cell, connection) is not None:
-						RouterObject = self.object_by_attribute(self.router_list, 'mxCellObject', getattr(cell, connection))
-						connection_dict[connection] = re.sub('\s', '_', RouterObject.name)
-					else:
-						connection_dict[connection] = 'STUB'
-				link_name = 'link:{}:{}'.format(connection_dict['source'], connection_dict['target']).lower()
-				self.link_list.append(Link('{}:{}'.format(link_name, len(self.object_list_by_name(self.link_list, link_name))+1), cell))
-				self.link_list[-1].add_subnet(cell.value)
+					if name:
+						link_name = 'link:STUB:{}'.format(name.value).lower()
+						self.link_list.append(Link('{}:{}'.format(link_name, len(self.object_list_by_name(self.link_list, link_name))+1), cell))
+						self.link_list[-1].add_subnet(cell.value)
+
+
 		if len(self.link_list) > 0:
 			return True
 		else:
@@ -89,27 +182,15 @@ class TheScript():
 			for link in self.link_list:
 				if link.mxCellObject.source == router.mxCellObject or link.mxCellObject.target == router.mxCellObject:
 					router.add_link(link)
+			for network in self.network_list:
+				for mxCellObject in network.host_list:
+					if mxCellObject == router.mxCellObject:
+						router.add_link(network)
 
 
 class DockerStartFile():
 	def __init__(self, path):
 		self.path = path
-		self.daemons = ('bgpd',
-						'ospfd',
-						'ospf6d',
-						'ripd',
-						'ripngd',
-						'isisd',
-						'pimd',
-						'ldpd',
-						'nhrpd',
-						'eigrpd',
-						'babeld',
-						'sharpd',
-						'pbrd',
-						'bfdd',
-						'fabricd'
-						)
 		with open('{}/docker-start'.format(self.path), 'w') as output_file:
 			output_file.write('#!/bin/sh\nset -e\n')
 			output_file.write("\n#Enable SSH\n")
@@ -120,14 +201,11 @@ class DockerStartFile():
 			output_file.write("/etc/init.d/ssh start\n")
 			output_file.write("\n\n\n")
 	
-	def enable_daemons(self, are_all_enabled = False, daemon_list = list()):
-		if are_all_enabled:
-			daemon_list = self.daemons
+	def enable_daemons(self, daemon_list = list()):
 		with open('{}/docker-start'.format(self.path), 'a') as output_file:
 			output_file.write('#Enable daemons\n')
 			for daemon in daemon_list:
-				if daemon in self.daemons:
-					output_file.write(f'sed -i "s/{daemon}=no/{daemon}=yes/g" /etc/frr/daemons\n')
+				output_file.write(f'sed -i "s/{daemon}=no/{daemon}=yes/g" /etc/frr/daemons\n')
 			output_file.write('chown -R frr:frr /etc/frr\n')
 			output_file.write('/etc/init.d/frr start\n')
 			output_file.write("\n\n\n")
@@ -146,41 +224,35 @@ class DockerStartFile():
 			output_file.write("exec sleep 10000d\n")
 
 
-
-
-
-
-
 class mxCell():
-	def __init__(self, cell_details_dict, router_shape = 'ellipse'):
-		self.shape_type = {'ellipse': '^ellipse;.+?$', 
-						   'rectangle': '^(?!\b(shape=)?hexagon|ellipse|triangle|rhombus\b).?$', 
-						   'triangle': '^triangle;.+?$',
-						   'hexagon': '^shape=hexagon;.+?$'
-						   }
+	def __init__(self, shape_types, cell_details_dict):
 		self.id = cell_details_dict['id']
+		self.type = None
 		if 'style'in cell_details_dict:
-			if re.match(self.shape_type[router_shape], cell_details_dict['style']):
-				self.type = router_shape
-				self.value = cell_details_dict['value']
-				self.edge_list = list()
-			elif re.match('edgeLabel', cell_details_dict['style']):
-				self.type = 'edgeLabel'
-				self.value = cell_details_dict['value']
-				self.parent = cell_details_dict['parent']
-			elif 'source' in cell_details_dict or 'target' in cell_details_dict:
-				self.type = 'edge'
-				self.value = None
-				if 'source' in cell_details_dict:
-					self.source = cell_details_dict['source']
-				else:
-					self.source = None
-				if 'target' in cell_details_dict:
-					self.target = cell_details_dict['target']
-				else:
-					self.target = None
-			else:
+			for shape, pattern in shape_types.items():
+				print('DEBUG:::{}:::{}'.format(pattern, cell_details_dict['style']))
+				if re.match(pattern, cell_details_dict['style']):
+					self.type = shape
+					self.value = cell_details_dict['value']
+					self.edge_list = list()
+				elif re.match('edgeLabel', cell_details_dict['style']):
+					self.type = 'edgeLabel'
+					self.value = cell_details_dict['value']
+					self.parent = cell_details_dict['parent']
+				elif 'source' in cell_details_dict or 'target' in cell_details_dict:
+					self.type = 'edge'
+					self.value = None
+					if 'source' in cell_details_dict:
+						self.source = cell_details_dict['source']
+					else:
+						self.source = None
+					if 'target' in cell_details_dict:
+						self.target = cell_details_dict['target']
+					else:
+						self.target = None
+			if not self.type:
 				self.type = 'other'
+		print ('DEBUG: CELL {}'.format(self.__dict__))
 
 
 	def add_connection(self, connection_type, ConnectionObject):
@@ -237,6 +309,15 @@ class Link(NetworkObject):
 										   }
 		return yaml_dict
 
+class Network(Link):
+	def __init__(self, name, mxCellObject):
+		super().__init__(name, mxCellObject)
+		self.host_list = list()
+
+	def add_host(self, RouterObject):
+		self.host_list.append(RouterObject)
+		
+
 class DockerComposeFile():
 	def __init__(self, path, build_path, start_port = 2000):
 		self.start_port = start_port
@@ -250,13 +331,15 @@ class DockerComposeFile():
 	def add_network(self, LinkObject):
 		self.yaml_dict['networks'].update(LinkObject.prepare_yaml_dict())
 
-	def create_yaml_dict(self, router_list, link_list):
+	def create_yaml_dict(self, router_list, link_list, network_list):
 		counter = 0
 		for router in router_list:
 			self.add_router(router, [(self.start_port+counter, 22)])
 			counter += 1
 		for link in link_list:
 			self.add_network(link)
+		for network in network_list:
+			self.add_network(network)
 	
 	def write_to_file(self):
 		with open('{}/docker-compose.yml'.format(self.path), 'w') as self.output_file:
@@ -267,56 +350,36 @@ class DockerComposeFile():
 def main():
 	#Parsing arguments and create objects
 	sys.stdout.write("Parsing arguments... ")
-
-	parser = argparse.ArgumentParser()
-	parser.add_argument("-f", "--file", required=True, help="draw.io XML topology file")
-	parser.add_argument("-d", "--dir", default=None, help="Directory to put final docker-compose.yml file (current dir by default)")
-	parser.add_argument("-p", "--path", default=None, help="Path to dir with Dockerfile (./frr default)")
-	parser.add_argument("-m", "--mpls", default=False, help="Boolean. Is MPLS enabled (False by default)")
-	parser.add_argument("-D", "--daemons", default=None, help="Daemons to enable in FRR (e.g: proto1,proto2,proto3 All daemons enabled by default)")
-
-	args = parser.parse_args()
-
-	topology_xml_file = args.file
-	if args.dir:
-		working_dir = args.dir
-	else:
-		working_dir = sys.path[0]
-	if args.path:
-		build_path = args.path
-	else:
-		build_path = '{}/frr'.format(working_dir)
-
-	is_mpls_enabled = args.mpls
-	if args.daemons:
-		daemon_list = args.daemons.split(',')
-	else:
-		daemon_list = args.daemons
-
-
-
-	TopologyBuilder = TheScript(topology_xml_file, working_dir, build_path, is_mpls_enabled)
-	DockerComposeFileObject = DockerComposeFile(working_dir, build_path)
-	DockerStartFileObject = DockerStartFile(build_path)
+	TopologyBuilder = TheScript()
+	TopologyBuilder.parsing_arguments()
+	DockerComposeFileObject = DockerComposeFile(TopologyBuilder.working_dir, TopologyBuilder.build_path)
+	DockerStartFileObject = DockerStartFile(TopologyBuilder.build_path)
 
 	sys.stdout.write("DONE\n")
 	sys.stdout.write("Parsing draw.io XML file... ")
 	if TopologyBuilder.parse_topology_file():
 		sys.stdout.write("DONE\n")
 		sys.stdout.write("Creating router list... ")
-		if TopologyBuilder.create_router_list():
+		if TopologyBuilder.create_router_list(TopologyBuilder.router_shape):
 			sys.stdout.write("DONE\n")
-			sys.stdout.write("Creating link list... ")
-			if TopologyBuilder.create_link_list():
+			sys.stdout.write("Creating network list... ")
+			if TopologyBuilder.create_network_list(TopologyBuilder.network_shape):
 				sys.stdout.write("DONE\n")
-				sys.stdout.write("Creating docker compose file... ")
-				TopologyBuilder.add_links_to_routers()
-				DockerComposeFileObject.create_yaml_dict(TopologyBuilder.router_list, TopologyBuilder.link_list)
-				DockerComposeFileObject.write_to_file()
-				sys.stdout.write("DONE\n")
+				sys.stdout.write("Creating link list... ")	
+				if TopologyBuilder.create_link_list():
+					sys.stdout.write("DONE\n")
+					sys.stdout.write("Creating docker compose file... ")
+					TopologyBuilder.add_links_to_routers()
+					DockerComposeFileObject.create_yaml_dict(TopologyBuilder.router_list, TopologyBuilder.link_list, TopologyBuilder.network_list)
+					DockerComposeFileObject.write_to_file()
+					sys.stdout.write("DONE\n")
+				else:
+					sys.stdout.write("FAILED\n")
+					sys.stderr.write('Something goes wrong creating link list. Bye.\n')
+					sys.exit(1)
 			else:
 				sys.stdout.write("FAILED\n")
-				sys.stderr.write('Something goes wrong creating link list. Bye.\n')
+				sys.stderr.write('Something goes wrong creating network list. Bye.\n')
 				sys.exit(1)
 		else:
 			sys.stdout.write("FAILED\n")
@@ -328,13 +391,9 @@ def main():
 		sys.exit(1)
 
 	sys.stdout.write("Creating container configuration file... ")
-	
-	if daemon_list:
-		DockerStartFileObject.enable_daemons(False, daemon_list)
-	else:
-		DockerStartFileObject.enable_daemons(True)
 
-	if TopologyBuilder.is_mpls_supported:
+	DockerStartFileObject.enable_daemons(TopologyBuilder.daemon_list)
+	if TopologyBuilder.is_mpls_enabled:
 		DockerStartFileObject.enable_mpls()
 	DockerStartFileObject.launch_continous_process()
 	sys.stdout.write("DONE\n")
