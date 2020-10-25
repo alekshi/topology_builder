@@ -4,7 +4,7 @@ The script is proposed to deploy a network topology drawn in [draw.io](https://a
 ## Draw.io diagram defenitions
 A mapping between draw.io and docker objects is depicted on the figure below:
 ![image](https://github.com/alekshi/topology_builder/blob/master/diagram-definition.png "Mapping between draw.io and docker")
-You can use any shapes for router and broadcast networks. IPv4 subnets are supported right now only. You can use prefix length <= /29 since docker host use one address from each subnet.
+You can use any shapes for router and broadcast networks. IPv4 subnets are supported right now only. You can use prefix length <= /29 since docker host uses one address from each subnet.
 
 ## How to use
 1. Clone the repo
