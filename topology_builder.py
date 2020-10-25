@@ -148,7 +148,6 @@ class TheScript():
 					connection_dict[connection] = getattr(cell, connection)
 				except:
 					pass
-
 			if all(connection_dict.values()):
 				if connection_dict['source'].type == self.router_shape and connection_dict['target'].type == self.router_shape:
 					link_name = 'link:{}:{}'.format(connection_dict['source'].value, connection_dict['target'].value).lower()
@@ -230,7 +229,6 @@ class mxCell():
 		self.type = None
 		if 'style'in cell_details_dict:
 			for shape, pattern in shape_types.items():
-				print('DEBUG:::{}:::{}'.format(pattern, cell_details_dict['style']))
 				if re.match(pattern, cell_details_dict['style']):
 					self.type = shape
 					self.value = cell_details_dict['value']
@@ -241,7 +239,10 @@ class mxCell():
 					self.parent = cell_details_dict['parent']
 				elif 'source' in cell_details_dict or 'target' in cell_details_dict:
 					self.type = 'edge'
-					self.value = None
+					if 'value' in cell_details_dict:
+						self.value = cell_details_dict['value']
+					else:
+						self.value = None
 					if 'source' in cell_details_dict:
 						self.source = cell_details_dict['source']
 					else:
@@ -252,8 +253,6 @@ class mxCell():
 						self.target = None
 			if not self.type:
 				self.type = 'other'
-		print ('DEBUG: CELL {}'.format(self.__dict__))
-
 
 	def add_connection(self, connection_type, ConnectionObject):
 		if connection_type == 'source':
