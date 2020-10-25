@@ -1,5 +1,9 @@
 # topology_builder
-A script to deploy containerized FRR based on draw.io topology.
+The script is proposed to deploy a network topology drawn in [draw.io](https://app.diagrams.net/) using containerized [FRR](https://frrouting.org/) as routers. The script uses [Docker file](https://github.com/alekshi/topology_builder/blob/master/frr/Dockerfile) creates docker-compose file and container configuration file (frr/docker-start). 
+
+##Draw.io diagram defenitions
+A mapping between draw.io and docker objects is depicted on the figure below:
+![image](https://github.com/alekshi/topology_builder/blob/master/diagram-definition.png "Mapping between draw.io and docker")
 
 How to use:
 
