@@ -1,4 +1,4 @@
-# topology_builder
+# Topology builder
 The script is proposed to deploy a network topology drawn in [draw.io](https://app.diagrams.net/) using containerized [FRR](https://frrouting.org/) as routers. The script uses [Docker file](https://github.com/alekshi/topology_builder/blob/master/frr/Dockerfile) creates docker-compose file and container configuration file (frr/docker-start). 
 
 ## Draw.io diagram defenitions
@@ -24,10 +24,10 @@ cd topology_builder/
 ./topology_builder.py -f <XML topology file path>
 ``` 
 Default settings include:
-..* Ellipse as router
-..* Rectangle as broadcast network
-..* All FRR daemons are enable
-..* MPLS is disable
+..*Ellipse as router
+..*Rectangle as broadcast network
+..*All FRR daemons are enable
+..*MPLS is disable
 Use ``` --help ```  to see all options
 5. Launch docker-compose file to create topology
 ``` 
