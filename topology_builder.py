@@ -4,7 +4,8 @@ import sys
 import ipaddress
 import yaml
 import argparse
-
+import os
+import shutil
 
 class TheScript():
 	def __init__(self):
@@ -39,8 +40,11 @@ class TheScript():
 		parser.add_argument("-f", "--file", required=True, help="draw.io XML topology file")
 		parser.add_argument("-d", "--dir", default=None, help="Directory to put final docker-compose.yml file (current dir by default)")
 		parser.add_argument("-p", "--path", default=None, help="Path to dir with Dockerfile (./frr default)")
-		parser.add_argument("-m", "--mpls", default=False, help="Boolean. Is MPLS enabled (False by default)")
+		parser.add_argument("-m", "--mpls", action='store_true', help="Boolean. Is MPLS enabled (False by default)")
+		parser.add_argument("-6", "--ipv6", action='store_true', help="Boolean. Is IPv6 (False by default)")
 		parser.add_argument("-D", "--daemons", default=None, help="Daemons to enable in FRR (e.g: proto1,proto2,proto3 All daemons enabled by default)")
+		parser.add_argument("-P", "--pwd", default='root', help="A password to use for a container SSH connection")
+		parser.add_argument("-k", "--key", default=None, help="A public key to use for a container SSH connection")
 		parser.add_argument("-r", "--router_shape", default='ellipse', help="A shape what represents router  on diagram (ellipse by default). Use: ellipse, rectangle, triangle, hexagon")
 		parser.add_argument("-n", "--network_shape", default='rectangle', help="A shape what represents broadcast network on diagram (rectangle by default). Use: ellipse, rectangle, triangle, hexagon")
 		args = parser.parse_args()
@@ -56,9 +60,19 @@ class TheScript():
 			self.build_path = args.path
 		else:
 			self.build_path = '{}/frr'.format(self.working_dir)
-	
+
+		self.container_pwd = args.pwd
+
+		if args.key:
+			if os.path.exists(args.key):
+				self.container_key = args.key
+			else:
+				self.container_key = None
+		else:
+			self.container_key = None
 		self.is_mpls_enabled = args.mpls
-		
+		self.is_ipv6_enabled = args.ipv6
+
 		self.daemon_list = list()
 		if args.daemons:
 			for daemon in args.daemons.split(','):
@@ -125,9 +139,26 @@ class TheScript():
 		else:
 			return False
 	
+	def __parse_router_name(self, raw_name):
+		result_dict = {'name': str(), 'vrf_list': list()}
+		pattern_router_name = re.compile('^<div>(.+?)<\/div>')
+		pattern_vrf_list = re.compile('VRF:\s*?\[(.+?)\]')
+		router_name_result = pattern_router_name.search(raw_name)
+		if router_name_result:
+			result_dict['name'] = router_name_result.group(1)
+			vrf_result = pattern_vrf_list.search(raw_name)
+			if vrf_result:
+				result_dict['vrf_list'] = vrf_result.group(1).replace(' ', '').split(',')
+		else:
+			result_dict['name'] = raw_name
+
+		return result_dict
+
 	def create_router_list(self, router_shape):
 		for cell in self.object_by_type(self.mxcell_list, router_shape):
-			self.router_list.append(Router('{}-{}'.format(cell.value.lower(), len(self.object_list_by_name(self.router_list, cell.value.lower()))+1), cell))
+			router_name = '{}-{}'.format(self.__parse_router_name(cell.value)['name'].lower(), len(self.object_list_by_name(self.router_list, self.__parse_router_name(cell.value)['name'].lower()))+1)
+			vrf_list = self.__parse_router_name(cell.value)['vrf_list']
+			self.router_list.append(Router(router_name, cell, vrf_list))
 		if len(self.router_list) > 0:
 			return True
 		else:
@@ -135,31 +166,33 @@ class TheScript():
 
 	def create_network_list(self, network_shape):
 		for cell in self.object_by_type(self.mxcell_list, network_shape):
-			net_name = 'net:{}'.format(re.sub('[./\s]', '_', cell.value))
-			self.network_list.append(Network(net_name, cell))
-			self.network_list[-1].add_subnet(cell.value)
+			net_name = 'net:{}'.format(re.sub('[,./\s]', '_', cell.value))
+			self.network_list.append(Network(net_name, cell, self.is_ipv6_enabled))
+			self.network_list[-1].add_subnet_to_list(cell.value)
 		return True
 
 	def create_link_list(self):	
 		for cell in self.object_by_type(self.mxcell_list, 'edge'):
 			connection_dict = {'source': None, 'target': None}
 			for connection, name in connection_dict.items():
+
 				try:
 					connection_dict[connection] = getattr(cell, connection)
 				except:
 					pass
 			if all(connection_dict.values()):
 				if connection_dict['source'].type == self.router_shape and connection_dict['target'].type == self.router_shape:
-					link_name = 'link:{}:{}'.format(connection_dict['source'].value, connection_dict['target'].value).lower()
-					self.link_list.append(Link('{}:{}'.format(link_name, len(self.object_list_by_name(self.link_list, link_name))+1), cell))
-					self.link_list[-1].add_subnet(cell.value)
+					link_name = 'link:{}:{}'.format(self.__parse_router_name(connection_dict['source'].value)['name'], 
+													self.__parse_router_name(connection_dict['target'].value)['name']).lower()
+					self.link_list.append(Link('{}:{}'.format(link_name, len(self.object_list_by_name(self.link_list, link_name))+1), cell, self.is_ipv6_enabled))
+					self.link_list[-1].add_subnet_to_list(cell.value)
 				if connection_dict['source'].type == self.network_shape:
-					net_name = 'net:{}'.format(re.sub('[./\s]', '_', connection_dict['source'].value))
+					net_name = 'net:{}'.format(re.sub('[,./\s]', '_', connection_dict['source'].value))
 					network_object = self.object_by_attribute(self.network_list, 'name', net_name)
 					if network_object:
 						network_object.add_host(connection_dict['target'])
 				if connection_dict['target'].type == self.network_shape:
-					net_name = 'net:{}'.format(re.sub('[./\s]', '_', connection_dict['target'].value))
+					net_name = 'net:{}'.format(re.sub('[,./\s]', '_', connection_dict['target'].value))
 					network_object = self.object_by_attribute(self.network_list, 'name', net_name)
 					if network_object:
 						network_object.add_host(connection_dict['source'])
@@ -167,8 +200,8 @@ class TheScript():
 				for connection, name in connection_dict.items():
 					if name:
 						link_name = 'link:STUB:{}'.format(name.value).lower()
-						self.link_list.append(Link('{}:{}'.format(link_name, len(self.object_list_by_name(self.link_list, link_name))+1), cell))
-						self.link_list[-1].add_subnet(cell.value)
+						self.link_list.append(Link('{}:{}'.format(link_name, len(self.object_list_by_name(self.link_list, link_name))+1), cell, self.is_ipv6_enabled))
+						self.link_list[-1].add_subnet_to_list(cell.value)
 
 
 		if len(self.link_list) > 0:
@@ -188,14 +221,23 @@ class TheScript():
 
 
 class DockerStartFile():
-	def __init__(self, path):
+	def __init__(self, path, TheScriptObject):
 		self.path = path
 		with open('{}/docker-start'.format(self.path), 'w') as output_file:
 			output_file.write('#!/bin/sh\nset -e\n')
 			output_file.write("\n#Enable SSH\n")
 			output_file.write("sed -i 's/#PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config\n")
-			output_file.write("sed -i 's/#PermitEmptyPasswords .*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config\n")
-			output_file.write("echo 'root:root' | chpasswd\n")
+			output_file.write("echo 'root:{}' | chpasswd\n".format(TheScriptObject.container_pwd))
+			if TheScriptObject.container_key:
+				try:
+					with open(TheScriptObject.container_key, 'r') as key_file:
+						key_string = key_file.read()
+				except:
+					key_string = str()
+				if key_string:
+					output_file.write("sed -i 's|#AuthorizedKeysFile.*|AuthorizedKeysFile /etc/ssh/authorized_keys|' /etc/ssh/sshd_config\n")
+					output_file.write("touch /etc/ssh/authorized_keys\n")
+					output_file.write("echo '{}' > /etc/ssh/authorized_keys\n".format(key_string))
 			output_file.write("echo 'exec /usr/bin/vtysh' >> ~/.bashrc\n")
 			output_file.write("/etc/init.d/ssh start\n")
 			output_file.write("\n\n\n")
@@ -216,6 +258,18 @@ class DockerStartFile():
 			output_file.write("for iface in $(ls /proc/sys/net/mpls/conf/); do sysctl -w net.mpls.conf.$iface.input=1; done\n")
 			output_file.write("/etc/init.d/frr start\n")
 			output_file.write("\n\n\n")
+	def enable_vrf(self, vrf_list):
+		index = 1
+		with open('{}/docker-start'.format(self.path), 'a') as output_file:
+			output_file.write("#Enable VRF\n")
+			for vrf in vrf_list:
+				output_file.write(f"ip link add {vrf} type vrf table {index}\n")
+				output_file.write(f"ip link set dev {vrf} up\n")
+				output_file.write(f"ip rule add oif {vrf} table {index}\n")
+				output_file.write(f"ip rule add iif {vrf} table {index}\n")
+				output_file.write(f"ip route add table {index} unreachable default metric 4278198272\n\n")
+				index+=1
+			output_file.write("\n\n\n")		
 
 	def launch_continous_process(self):
 		with open('{}/docker-start'.format(self.path), 'a') as output_file:
@@ -269,16 +323,17 @@ class NetworkObject():
 		self.mxCellObject = mxCellObject
 
 class Router(NetworkObject):
-	def __init__(self, name, mxCellObject):
+	def __init__(self, name, mxCellObject, vrf_list = list()):
 		super().__init__(name, mxCellObject)
 		self.link_list = list()
+		self.vrf_list = vrf_list
 
 	def add_link(self, link):
 		self.link_list.append(link)
 
 	def prepare_yaml_dict(self, build_path, expose_ports = None, is_privileged = False):
 		yaml_dict = {self.name: {
-									"build": build_path,
+									"build": '{}/{}'.format(build_path, self.name),
 									"ports": ['{}:{}'.format(ports_tuple[0], ports_tuple[1]) for ports_tuple in expose_ports],
 									"privileged": is_privileged,
 									"networks": [str(link.name) for link in self.link_list]
@@ -288,30 +343,46 @@ class Router(NetworkObject):
 
 
 class Link(NetworkObject):
-	def __init__(self, name, mxCellObject):
+	def __init__(self, name, mxCellObject, is_ipv6_enabled = False):
 		super().__init__(name, mxCellObject)
-		self.subnet = None
+		self.subnet_list = list()
+		self.is_ipv6_enabled = is_ipv6_enabled
 
-	def add_subnet(self, subnet):
-		try:
-			self.subnet = ipaddress.ip_network(subnet)
-		except:
-			self.subnet = None
+	def add_subnet_to_list(self, raw_string):
+		for subnet in raw_string.replace(' ','').split(','):
+			try:
+				self.subnet_list.append(ipaddress.ip_network(subnet))
+			except:
+				self.subnet_list.append(None)
+		return True
+
 	def prepare_yaml_dict(self):
-		yaml_dict = {self.name: {
-									"driver": "bridge"
-								}
-					}
-		if self.subnet:
+		if self.is_ipv6_enabled:
+			yaml_dict = {self.name: {
+										"enable_ipv6": True,
+										"driver": "bridge",
+										"driver_opts": {"com.docker.network.enable_ipv6": True}
+									}
+						}
+		else:
+			yaml_dict = {self.name: {
+							"driver": "bridge"
+									}
+						}
+		if self.subnet_list:
 			yaml_dict[self.name]["ipam"] = {"driver": "default", 
-										    "config": [{'subnet': str(self.subnet)}]
+										    "config": list()
 										   }
+			for subnet in self.subnet_list:
+				if subnet:
+					yaml_dict[self.name]["ipam"]["config"].append({'subnet': str(subnet)})
 		return yaml_dict
 
 class Network(Link):
-	def __init__(self, name, mxCellObject):
-		super().__init__(name, mxCellObject)
+	def __init__(self, name, mxCellObject, is_ipv6_enabled = False):
+		super().__init__(name, mxCellObject, is_ipv6_enabled = False)
 		self.host_list = list()
+		self.is_ipv6_enabled = is_ipv6_enabled
 
 	def add_host(self, RouterObject):
 		self.host_list.append(RouterObject)
@@ -352,7 +423,6 @@ def main():
 	TopologyBuilder = TheScript()
 	TopologyBuilder.parsing_arguments()
 	DockerComposeFileObject = DockerComposeFile(TopologyBuilder.working_dir, TopologyBuilder.build_path)
-	DockerStartFileObject = DockerStartFile(TopologyBuilder.build_path)
 
 	sys.stdout.write("DONE\n")
 	sys.stdout.write("Parsing draw.io XML file... ")
@@ -389,13 +459,25 @@ def main():
 		sys.stderr.write('Something goes wrong parsing draw io XML file. Bye.\n')
 		sys.exit(1)
 
-	sys.stdout.write("Creating container configuration file... ")
+	sys.stdout.write("Creating container configuration files.. ")
 
-	DockerStartFileObject.enable_daemons(TopologyBuilder.daemon_list)
-	if TopologyBuilder.is_mpls_enabled:
-		DockerStartFileObject.enable_mpls()
-	DockerStartFileObject.launch_continous_process()
+	for router in TopologyBuilder.router_list:
+		container_build_dir = os.path.join(TopologyBuilder.build_path, router.name)
+		if not os.path.exists(container_build_dir):
+			os.mkdir(container_build_dir)
+		shutil.copyfile(os.path.join(TopologyBuilder.build_path, 'Dockerfile'),
+				 		os.path.join(container_build_dir, 'Dockerfile'))
+		DockerStartFileObject = DockerStartFile(container_build_dir, TopologyBuilder)
+		DockerStartFileObject.enable_daemons(TopologyBuilder.daemon_list)
+		if TopologyBuilder.is_mpls_enabled:
+			DockerStartFileObject.enable_mpls()
+		if router.vrf_list:
+			DockerStartFileObject.enable_vrf(router.vrf_list)
+		DockerStartFileObject.launch_continous_process()
 	sys.stdout.write("DONE\n")
+	if TopologyBuilder.is_mpls_enabled:
+		sys.stdout.write("\n*** WARNING: Since MPLS is going to be used, pls load the modules first ***\n")
+		sys.stdout.write("   - modprobe mpls_router\n   - modprobe mpls_gso\n   - modprobe mpls_iptunnel\n\n")
 
 
 if __name__ == '__main__':

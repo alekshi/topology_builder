@@ -9,8 +9,8 @@ RUN apt-get update && \
     libc-ares2 libjson-c3 vim procps libreadline7 gnupg2 lsb-release apt-utils openssh-server && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -s https://deb.frrouting.org/frr/keys.asc | apt-key add -
-RUN echo deb https://deb.frrouting.org/frr $(lsb_release -s -c) frr-stable | tee -a /etc/apt/sources.list.d/frr.list
+RUN curl -s https://deb-us.frrouting.org/frr/keys.asc | apt-key add -
+RUN echo deb https://deb-us.frrouting.org/frr $(lsb_release -s -c) frr-stable | tee -a /etc/apt/sources.list.d/frr.list
 
 RUN apt-get update && \
     apt-get install -y frr frr-pythontools && \

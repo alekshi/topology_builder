@@ -1,5 +1,5 @@
 # Topology builder
-The script is proposed to deploy a network topology drawn in [draw.io](https://app.diagrams.net/) using containerized [FRR](https://frrouting.org/) as routers. The script uses [Docker file](https://github.com/alekshi/topology_builder/blob/master/frr/Dockerfile) creates docker-compose file and container configuration file (frr/docker-start). 
+The script is proposed to deploy a network topology drawn in [draw.io](https://app.diagrams.net/) using containerized [FRR](https://frrouting.org/) as routers. The script uses [Docker file](https://github.com/alekshi/topology_builder/blob/master/frr/Dockerfile) creates docker-compose file and container configuration files (docker-start, per container image). 
 
 ## Draw.io diagram defenitions
 A mapping between draw.io and docker objects is depicted on the figure below:
@@ -12,7 +12,7 @@ You can use any shapes for router and broadcast networks. IPv4 subnets are suppo
 git clone https://github.com/alekshi/topology_builder.git
 cd topology_builder/
 ```
-2. Draw a network diagram using [draw.io](https://app.diagrams.net/) and export to xml (without compressing)
+2. Draw a network diagram using [draw.io](https://app.diagrams.net/) and export to xml (without compressing). If VRFs are going to be used, put them in a list after new line in router name (like: ```VRF:[RED,GREEN,BLUE]```)
 3. To use MPLS with Linux kernel, load additional modules:
 ```  
    modprobe mpls_router
@@ -28,9 +28,11 @@ Default settings include:
 * Rectangle as broadcast network
 * All FRR daemons are enable
 * MPLS is disable
+* IPv6 is disable
+* SSH authentication by login/password (root/root)
 Use ``` --help ```  to see all options
 5. Launch docker-compose file to create topology
 ``` 
 docker-compose up -d
 ``` 
-6. Check ports what are exposed for ssh connection using ```docker container ls```  By default 2000+ ports are used for ssh and root/root credentials. 
+6. Check ports what are exposed for ssh connection using ```docker container ls```  By default 2000+ ports are used for ssh and root/root credentials. It is possible to create own password or use public key for SSH authentication. Use ``` --help ```
